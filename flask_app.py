@@ -45,7 +45,7 @@ def generate_username(category):
         c1, c2 = random.choice(CONSONANTS), random.choice(VOWELS)
         return f"{c1}{c2}{c2}{c1}{c2}"
     else:
-        return "".join(random.choices(string.ascii_lowercase + string.digits, k=5))
+        return "".join(random.choices(string.ascii_lowercase + string.digits, k=4))
 
 def check_username_available(username):
     try:
@@ -61,7 +61,7 @@ def get_main_keyboard():
     return {
         "keyboard": [
             [{"text": "Поиск легендарных 👑"}, {"text": "Поиск красивых ✨"}],
-            [{"text": "Рандом 5 символов 🎲"}, {"text": "⭐ VIP Подписка (100 звёзд)"}],
+            [{"text": "Рандом 4 символов 🎲"}, {"text": "⭐ VIP Подписка (100 звёзд)"}],
             [{"text": "/search"}, {"text": "/profile"}]
         ],
         "resize_keyboard": True
@@ -89,7 +89,7 @@ def webhook():
             if text == "/start":
                 send_message(
                     chat_id,
-                    "👋 Привет! Я бот для поиска свободных и редких юзернеймов из 5 символов.\n\n"
+                    "👋 Привет! Я бот для поиска свободных и редких юзернеймов из 4 символов.\n\n"
                     "📊 **Ваши лимиты:**\n"
                     "• Обычные/Красивые: 5 в день\n"
                     "• Легендарные: 1 в день\n\n"
