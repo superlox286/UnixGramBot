@@ -4,7 +4,6 @@ from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-# Токены
 BOT_TOKEN = "3357798223:nA2y5FAbvUpzALNPGJWvamzXUtjQDCf6"
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
@@ -19,45 +18,38 @@ def send_message(chat_id, text):
         print(f"Ошибка отправки сообщения: {e}")
 
 def ask_ai(prompt):
-    """ Запрос к бесплатной модели Gemini 3.8 Flash """
+    """ Запрос к Gemini с автозаменой модели при перегрузке (503/404) """
     if not GEMINI_API_KEY:
         return "⚠️ Ошибка: API ключ GEMINI_API_KEY не установлен в Vercel!"
 
-    # Актуальная модель согласно ответу Google API
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key={GEMINI_API_KEY}"
+    # Список моделей для перебора в случае перегрузки
+    models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash"]
     
-    headers = {
-        "Content-Type": "application/json"
-    }
-    
+    headers = {"Content-Type": "application/json"}
     data = {
-        "contents": [
-            {
-                "parts": [
-                    {"text": prompt}
-                ]
-            }
-        ],
-        "generationConfig": {
-            "temperature": 0.7,
-            "maxOutputTokens": 500
-        }
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": 0.7, "maxOutputTokens": 500}
     }
-    
-    try:
-        resp = requests.post(url, json=data, headers=headers, timeout=8)
-        if resp.status_code == 200:
-            result = resp.json()
-            candidates = result.get("candidates", [])
-            if candidates:
-                parts = candidates[0].get("content", {}).get("parts", [])
-                if parts:
-                    return parts[0].get("text", "Пустой ответ от ИИ.")
-            return "Не удалось получить текст ответа."
-        else:
-            return f"❌ Ошибка ИИ ({resp.status_code}): {resp.text}"
-    except Exception as e:
-        return f"❌ Ошибка соединения с ИИ: {e}"
+
+    last_error = ""
+
+    for model in models:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_API_KEY}"
+        try:
+            resp = requests.post(url, json=data, headers=headers, timeout=8)
+            if resp.status_code == 200:
+                result = resp.json()
+                candidates = result.get("candidates", [])
+                if candidates:
+                    parts = candidates[0].get("content", {}).get("parts", [])
+                    if parts:
+                        return parts[0].get("text", "Пустой ответ от ИИ.")
+            else:
+                last_error = f"❌ Ошибка {model} ({resp.status_code}): {resp.text}"
+        except Exception as e:
+            last_error = f"❌ Ошибка соединения: {e}"
+
+    return f"⚠️ Серверы Gemini перегружены. Попробуйте еще раз через минуту.\n\nДетали: {last_error}"
 
 @app.route("/", methods=["GET", "POST"])
 def webhook():
@@ -74,7 +66,7 @@ def webhook():
             if text == "/start":
                 send_message(
                     chat_id, 
-                    "👋 Привет! Я ИИ-бот на базе Gemini 3.8 Flash.\n\n"
+                    "👋 Привет! Я ИИ-бот на базе Gemini.\n\n"
                     "Задай мне любой вопрос, и я отвечу!"
                 )
             else:
