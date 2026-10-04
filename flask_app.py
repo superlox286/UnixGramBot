@@ -13,7 +13,6 @@ BASE_URL = f"https://unixgram.com/api/bot/{BOT_TOKEN}"
 URL_SEND_MESSAGE = f"{BASE_URL}/sendMessage"
 URL_SEND_INVOICE = f"{BASE_URL}/sendInvoice"
 
-# Зашифрованный промокод vERONIKA1967! (SHA-256)
 SECRET_VIP_HASH = "5880795bc7ee09e25ca6cf7ed756540c49bc0b6cdcf9540e8e4ae9bf033ec8dd"
 
 VOWELS = "aeiou"
@@ -53,14 +52,38 @@ def generate_username(category):
         return "".join(random.choices(string.ascii_lowercase + string.digits, k=4))
 
 def check_username_available(username):
+    """ Улучшенная двойная проверка доступности юзернейма """
+    # 1. Проверка через getChat API
     try:
         url = f"{BASE_URL}/getChat"
-        resp = requests.get(url, params={"chat_id": f"@{username}"}, timeout=2)
-        if resp.status_code == 200 and resp.json().get("ok"):
+        resp = requests.get(url, params={"chat_id": f"@{username}"}, timeout=3)
+        data = resp.json() if resp.status_code == 200 else {}
+        
+        # Если чат найден через API — 100% занят
+        if data.get("ok"):
             return False
-        return True
+            
+        # Если ошибка говорит, что чат не найден — перепроверяем через t.me
+        error_msg = str(data.get("description", "")).lower()
+        if "chat not found" not in error_msg and "user not found" not in error_msg and resp.status_code != 400:
+            # Неизвестная ошибка или лимит API — лучше пропустить
+            return False
     except Exception:
         return False
+
+    # 2. Дополнительная проверка веб-страницы t.me/username
+    try:
+        web_resp = requests.get(f"https://t.me/{username}", timeout=3)
+        if web_resp.status_code == 200:
+            # На странице занятых аккаунтов/каналов есть ссылки tg://resolve или просмотр
+            if "tg://resolve?domain=" in web_resp.text or "tg://join?invite=" in web_resp.text:
+                return False
+            if f"@{username}" in web_resp.text or "preview_description" in web_resp.text:
+                return False
+    except Exception:
+        return False
+
+    return True
 
 def get_main_keyboard():
     return {
@@ -187,7 +210,7 @@ def webhook():
 
                 found = []
                 attempts = 0
-                max_attempts = 3 if is_legendary else 5
+                max_attempts = 12 if is_legendary else 15
                 
                 while len(found) < (1 if is_legendary else 3) and attempts < max_attempts:
                     candidate = generate_username(category)
