@@ -19,12 +19,12 @@ def send_message(chat_id, text):
         print(f"Ошибка отправки сообщения: {e}")
 
 def ask_ai(prompt):
-    """ Запрос к актуальной бесплатной модели Gemini """
+    """ Запрос к бесплатной модели Gemini 3.8 Flash """
     if not GEMINI_API_KEY:
         return "⚠️ Ошибка: API ключ GEMINI_API_KEY не установлен в Vercel!"
 
-    # Используем актуальное наименование модели gemini-2.5-flash
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+    # Актуальная модель согласно ответу Google API
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key={GEMINI_API_KEY}"
     
     headers = {
         "Content-Type": "application/json"
@@ -74,7 +74,7 @@ def webhook():
             if text == "/start":
                 send_message(
                     chat_id, 
-                    "👋 Привет! Я ИИ-бот на базе Gemini Flash.\n\n"
+                    "👋 Привет! Я ИИ-бот на базе Gemini 3.8 Flash.\n\n"
                     "Задай мне любой вопрос, и я отвечу!"
                 )
             else:
