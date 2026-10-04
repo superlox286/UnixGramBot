@@ -1,4 +1,4 @@
-import os
+import os #коч голда
 import requests
 from flask import Flask, request, jsonify
 
