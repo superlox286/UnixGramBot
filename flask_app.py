@@ -1,108 +1,60 @@
 import os
-import random
-import string
 import requests
-import hashlib
-from datetime import datetime
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
+# Токены
 BOT_TOKEN = "3357798223:nA2y5FAbvUpzALNPGJWvamzXUtjQDCf6"
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+
 BASE_URL = f"https://unixgram.com/api/bot/{BOT_TOKEN}"
 URL_SEND_MESSAGE = f"{BASE_URL}/sendMessage"
-URL_SEND_INVOICE = f"{BASE_URL}/sendInvoice"
 
-SECRET_VIP_HASH = "5880795bc7ee09e25ca6cf7ed756540c49bc0b6cdcf9540e8e4ae9bf033ec8dd"
-
-VOWELS = "aeiou"
-CONSONANTS = "bcdfghjklmnpqrstvwxyz"
-
-users_db = {}
-
-def get_user_data(chat_id):
-    today = datetime.now().strftime("%Y-%m-%d")
-    if chat_id not in users_db:
-        users_db[chat_id] = {
-            "last_reset": today,
-            "daily_searches": 0,
-            "daily_legendary": 0,
-            "bonus_legendary": 0,
-            "vip": False,
-            "used_codes": set()
-        }
-    if users_db[chat_id]["last_reset"] != today:
-        users_db[chat_id]["last_reset"] = today
-        users_db[chat_id]["daily_searches"] = 0
-        users_db[chat_id]["daily_legendary"] = 0
-        users_db[chat_id]["bonus_legendary"] = 0
-    return users_db[chat_id]
-
-def generate_username(category):
-    if category == "legendary":
-        pattern = random.choice(["CVCV", "VCVC", "CVCC", "CCVC"])
-        return "".join(random.choice(CONSONANTS if char == "C" else VOWELS) for char in pattern)
-    elif category == "secret":
-        c1, c2 = random.choice(CONSONANTS), random.choice(VOWELS)
-        return f"{c1}{c2}{c1}{c2}"
-    elif category == "pretty":
-        c1, c2 = random.choice(CONSONANTS), random.choice(VOWELS)
-        return f"{c1}{c2}{c2}{c1}"
-    else:
-        return "".join(random.choices(string.ascii_lowercase + string.digits, k=4))
-
-def check_username_available(username):
-    """ Улучшенная двойная проверка доступности юзернейма """
-    # 1. Проверка через getChat API
-    try:
-        url = f"{BASE_URL}/getChat"
-        resp = requests.get(url, params={"chat_id": f"@{username}"}, timeout=3)
-        data = resp.json() if resp.status_code == 200 else {}
-        
-        # Если чат найден через API — 100% занят
-        if data.get("ok"):
-            return False
-            
-        # Если ошибка говорит, что чат не найден — перепроверяем через t.me
-        error_msg = str(data.get("description", "")).lower()
-        if "chat not found" not in error_msg and "user not found" not in error_msg and resp.status_code != 400:
-            # Неизвестная ошибка или лимит API — лучше пропустить
-            return False
-    except Exception:
-        return False
-
-    # 2. Дополнительная проверка веб-страницы t.me/username
-    try:
-        web_resp = requests.get(f"https://t.me/{username}", timeout=3)
-        if web_resp.status_code == 200:
-            # На странице занятых аккаунтов/каналов есть ссылки tg://resolve или просмотр
-            if "tg://resolve?domain=" in web_resp.text or "tg://join?invite=" in web_resp.text:
-                return False
-            if f"@{username}" in web_resp.text or "preview_description" in web_resp.text:
-                return False
-    except Exception:
-        return False
-
-    return True
-
-def get_main_keyboard():
-    return {
-        "keyboard": [
-            [{"text": "Поиск легендарных 👑"}, {"text": "Поиск красивых ✨"}],
-            [{"text": "Рандом 4 символов 🎲"}, {"text": "⭐ VIP Подписка (100 звёзд)"}],
-            [{"text": "/search"}, {"text": "/profile"}]
-        ],
-        "resize_keyboard": True
-    }
-
-def send_message(chat_id, text, reply_markup=None):
+def send_message(chat_id, text):
     payload = {"chat_id": chat_id, "text": text}
-    if reply_markup:
-        payload["reply_markup"] = reply_markup
     try:
-        requests.post(URL_SEND_MESSAGE, json=payload, timeout=3)
+        requests.post(URL_SEND_MESSAGE, json=payload, timeout=5)
     except Exception as e:
-        print(f"Ошибка отправки: {e}")
+        print(f"Ошибка отправки сообщения: {e}")
+
+def ask_ai(prompt):
+    """ Запрос к бесплатному Gemini 1.5 Flash через обычный requests """
+    if not GEMINI_API_KEY:
+        return "⚠️ Ошибка: API ключ GEMINI_API_KEY не установлен в Vercel!"
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+    headers = {
+        "Content-Type": "application/json"
+    }
+    data = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": prompt}
+                ]
+            }
+        ],
+        "generationConfig": {
+            "temperature": 0.7,
+            "maxOutputTokens": 500
+        }
+    }
+    
+    try:
+        resp = requests.post(url, json=data, headers=headers, timeout=8)
+        if resp.status_code == 200:
+            result = resp.json()
+            candidates = result.get("candidates", [])
+            if candidates:
+                parts = candidates[0].get("content", {}).get("parts", [])
+                if parts:
+                    return parts[0].get("text", "Пустой ответ от ИИ.")
+            return "Не удалось получить текст ответа."
+        else:
+            return f"❌ Ошибка ИИ ({resp.status_code}): {resp.text}"
+    except Exception as e:
+        return f"❌ Ошибка соединения с ИИ: {e}"
 
 @app.route("/", methods=["GET", "POST"])
 def webhook():
@@ -112,124 +64,22 @@ def webhook():
             msg = update["message"]
             chat_id = msg["chat"]["id"]
             text = msg.get("text", "").strip()
-            user = get_user_data(chat_id)
+
+            if not text:
+                return jsonify({"ok": True}), 200
 
             if text == "/start":
                 send_message(
-                    chat_id,
-                    "👋 Привет! Я бот для поиска свободных и редких юзернеймов из 4 символов.\n\n"
-                    "📊 **Ваши лимиты:**\n"
-                    "• Обычные/Красивые: 5 в день\n"
-                    "• Легендарные: 1 в день\n\n"
-                    "Купите VIP подписку или активируйте промокод через `/code <код>`!",
-                    get_main_keyboard()
+                    chat_id, 
+                    "👋 Привет! Я ИИ-бот на базе Gemini 1.5 Flash.\n\n"
+                    "Задай мне любой вопрос, и я отвечу!"
                 )
-
-            elif text == "/profile":
-                status = "🔥 VIP (Безлимит)" if user["vip"] else "Обычный"
-                searches_left = "∞" if user["vip"] else (5 - user["daily_searches"])
-                leg_limit = 1 + user["bonus_legendary"]
-                leg_left = "∞" if user["vip"] else (leg_limit - user["daily_legendary"])
-                send_message(
-                    chat_id,
-                    f"👤 **Ваш профиль:**\n"
-                    f"• Статус: {status}\n"
-                    f"• Обычных поисков осталось: {searches_left}\n"
-                    f"• Легендарных поисков осталось: {leg_left}"
-                )
-
-            elif text.startswith("/code"):
-                parts = text.split(maxsplit=1)
-                if len(parts) < 2:
-                    send_message(chat_id, "❌ Укажите код! Пример: `/code free`")
-                else:
-                    code = parts[1].strip()
-                    code_hash = hashlib.sha256(code.encode()).hexdigest()
-
-                    if code == "free":
-                        if "free" in user["used_codes"]:
-                            send_message(chat_id, "❌ Вы уже активировали код `free`!")
-                        else:
-                            user["used_codes"].add("free")
-                            send_message(chat_id, "🎉 Промокод активирован! Ищу для вас юзернеймы...")
-                            leg_name = generate_username("legendary")
-                            sec_name = generate_username("secret")
-                            send_message(
-                                chat_id,
-                                f"🎁 **Ваши уникальные юзернеймы:**\n\n"
-                                f"👑 Легендарный: @{leg_name}\n"
-                                f"🔒 Секретный: @{sec_name}"
-                            )
-                    elif code == "buff":
-                        if "buff" in user["used_codes"]:
-                            send_message(chat_id, "❌ Вы уже активировали промокод `buff`!")
-                        else:
-                            user["used_codes"].add("buff")
-                            user["bonus_legendary"] += 5
-                            send_message(chat_id, "⚡ **Промокод активирован!** Вам добавлено **+5 легендарных поисков** на сегодня!")
-                    elif code_hash == SECRET_VIP_HASH:
-                        user["vip"] = True
-                        send_message(chat_id, "🚀 **УРА!** Вам предоставлен **БЕСКОНЕЧНЫЙ** поиск!")
-                    else:
-                        send_message(chat_id, "❌ Неверный промокод.")
-
-            elif text == "⭐ VIP Подписка (100 звёзд)":
-                payload = {
-                    "chat_id": chat_id,
-                    "title": "VIP Подписка",
-                    "description": "Бесконечные поиски легендарных и красивых юзернеймов!",
-                    "payload": "vip_subscription",
-                    "currency": "XTR",
-                    "prices": [{"label": "VIP Безлимит", "amount": 100}]
-                }
-                try:
-                    requests.post(URL_SEND_INVOICE, json=payload, timeout=3)
-                except Exception as e:
-                    print(f"Ошибка оплаты: {e}")
-
-            elif text in ["/search", "Поиск легендарных 👑", "Поиск красивых ✨", "Рандом 4 символов 🎲"]:
-                is_legendary = "легендарных" in text
-                leg_limit = 1 + user["bonus_legendary"]
-
-                if not user["vip"]:
-                    if is_legendary and user["daily_legendary"] >= leg_limit:
-                        send_message(chat_id, f"❌ Вы исчерпали лимит легендарных поисков на сегодня ({leg_limit}/{leg_limit}).")
-                        return jsonify({"ok": True}), 200
-                    elif not is_legendary and user["daily_searches"] >= 5:
-                        send_message(chat_id, "❌ Вы исчерпали дневной лимит поисков (5/5).")
-                        return jsonify({"ok": True}), 200
-
-                if not user["vip"]:
-                    if is_legendary:
-                        user["daily_legendary"] += 1
-                    else:
-                        user["daily_searches"] += 1
-
-                category = "legendary" if is_legendary else ("pretty" if "красивых" in text else "random")
-                send_message(chat_id, "🔎 Выполняется поиск...")
-
-                found = []
-                attempts = 0
-                max_attempts = 12 if is_legendary else 15
-                
-                while len(found) < (1 if is_legendary else 3) and attempts < max_attempts:
-                    candidate = generate_username(category)
-                    if check_username_available(candidate):
-                        found.append(candidate)
-                    attempts += 1
-
-                if found:
-                    msg_text = f"✅ Найдено ({category}):\n\n" + "\n".join(f"• @{u}" for u in found)
-                    send_message(chat_id, msg_text)
-                else:
-                    send_message(chat_id, "😔 Не удалось найти свободный юзернейм, попробуйте еще раз!")
-
-            elif "successful_payment" in msg:
-                user["vip"] = True
-                send_message(chat_id, "🎉 Оплата прошла успешно! Вам активирован VIP!")
+            else:
+                ai_response = ask_ai(text)
+                send_message(chat_id, ai_response)
 
         return jsonify({"ok": True}), 200
-    return "Bot is running", 200
+    return "Gemini AI Bot is running", 200
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
