@@ -2,6 +2,7 @@ import os
 import random
 import string
 import requests
+import hashlib
 from datetime import datetime
 from flask import Flask, request, jsonify
 
@@ -11,6 +12,9 @@ BOT_TOKEN = "3357798223:nA2y5FAbvUpzALNPGJWvamzXUtjQDCf6"
 BASE_URL = f"https://unixgram.com/api/bot/{BOT_TOKEN}"
 URL_SEND_MESSAGE = f"{BASE_URL}/sendMessage"
 URL_SEND_INVOICE = f"{BASE_URL}/sendInvoice"
+
+# Зашифрованный промокод vERONIKA1967! (SHA-256)
+SECRET_VIP_HASH = "5880795bc7ee09e25ca6cf7ed756540c49bc0b6cdcf9540e8e4ae9bf033ec8dd"
 
 VOWELS = "aeiou"
 CONSONANTS = "bcdfghjklmnpqrstvwxyz"
@@ -24,6 +28,7 @@ def get_user_data(chat_id):
             "last_reset": today,
             "daily_searches": 0,
             "daily_legendary": 0,
+            "bonus_legendary": 0,
             "vip": False,
             "used_codes": set()
         }
@@ -31,19 +36,19 @@ def get_user_data(chat_id):
         users_db[chat_id]["last_reset"] = today
         users_db[chat_id]["daily_searches"] = 0
         users_db[chat_id]["daily_legendary"] = 0
+        users_db[chat_id]["bonus_legendary"] = 0
     return users_db[chat_id]
 
 def generate_username(category):
     if category == "legendary":
-        pattern = random.choice(["CVCVC", "VCVCV", "CVCCV"])
+        pattern = random.choice(["CVCV", "VCVC", "CVCC", "CCVC"])
         return "".join(random.choice(CONSONANTS if char == "C" else VOWELS) for char in pattern)
     elif category == "secret":
-        style = random.choice([1, 2])
         c1, c2 = random.choice(CONSONANTS), random.choice(VOWELS)
-        return f"{c1}{c2}{c1}{c2}{c1}" if style == 1 else f"{c1}{c1}{c2}{c1}{c1}"
+        return f"{c1}{c2}{c1}{c2}"
     elif category == "pretty":
         c1, c2 = random.choice(CONSONANTS), random.choice(VOWELS)
-        return f"{c1}{c2}{c2}{c1}{c2}"
+        return f"{c1}{c2}{c2}{c1}"
     else:
         return "".join(random.choices(string.ascii_lowercase + string.digits, k=4))
 
@@ -100,7 +105,8 @@ def webhook():
             elif text == "/profile":
                 status = "🔥 VIP (Безлимит)" if user["vip"] else "Обычный"
                 searches_left = "∞" if user["vip"] else (5 - user["daily_searches"])
-                leg_left = "∞" if user["vip"] else (1 - user["daily_legendary"])
+                leg_limit = 1 + user["bonus_legendary"]
+                leg_left = "∞" if user["vip"] else (leg_limit - user["daily_legendary"])
                 send_message(
                     chat_id,
                     f"👤 **Ваш профиль:**\n"
@@ -114,7 +120,9 @@ def webhook():
                 if len(parts) < 2:
                     send_message(chat_id, "❌ Укажите код! Пример: `/code free`")
                 else:
-                    code = parts[1]
+                    code = parts[1].strip()
+                    code_hash = hashlib.sha256(code.encode()).hexdigest()
+
                     if code == "free":
                         if "free" in user["used_codes"]:
                             send_message(chat_id, "❌ Вы уже активировали код `free`!")
@@ -129,7 +137,14 @@ def webhook():
                                 f"👑 Легендарный: @{leg_name}\n"
                                 f"🔒 Секретный: @{sec_name}"
                             )
-                    elif code == "vERONIKA1967!":
+                    elif code == "buff":
+                        if "buff" in user["used_codes"]:
+                            send_message(chat_id, "❌ Вы уже активировали промокод `buff`!")
+                        else:
+                            user["used_codes"].add("buff")
+                            user["bonus_legendary"] += 5
+                            send_message(chat_id, "⚡ **Промокод активирован!** Вам добавлено **+5 легендарных поисков** на сегодня!")
+                    elif code_hash == SECRET_VIP_HASH:
                         user["vip"] = True
                         send_message(chat_id, "🚀 **УРА!** Вам предоставлен **БЕСКОНЕЧНЫЙ** поиск!")
                     else:
@@ -149,11 +164,13 @@ def webhook():
                 except Exception as e:
                     print(f"Ошибка оплаты: {e}")
 
-            elif text in ["/search", "Поиск легендарных 👑", "Поиск красивых ✨", "Рандом 5 символов 🎲"]:
+            elif text in ["/search", "Поиск легендарных 👑", "Поиск красивых ✨", "Рандом 4 символов 🎲"]:
                 is_legendary = "легендарных" in text
+                leg_limit = 1 + user["bonus_legendary"]
+
                 if not user["vip"]:
-                    if is_legendary and user["daily_legendary"] >= 1:
-                        send_message(chat_id, "❌ Вы исчерпали лимит легендарных поисков на сегодня (1/1).")
+                    if is_legendary and user["daily_legendary"] >= leg_limit:
+                        send_message(chat_id, f"❌ Вы исчерпали лимит легендарных поисков на сегодня ({leg_limit}/{leg_limit}).")
                         return jsonify({"ok": True}), 200
                     elif not is_legendary and user["daily_searches"] >= 5:
                         send_message(chat_id, "❌ Вы исчерпали дневной лимит поисков (5/5).")
