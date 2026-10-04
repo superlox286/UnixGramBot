@@ -1,4 +1,4 @@
-import os #коч голда
+import os
 import requests
 from flask import Flask, request, jsonify
 
@@ -19,7 +19,7 @@ def send_message(chat_id, text):
         print(f"Ошибка отправки сообщения: {e}")
 
 def ask_ai(prompt):
-    """ Запрос к бесплатному Gemini 1.5 Flash через обычный requests """
+    """ Запрос к Gemini 1.5 Flash через REST API v1beta """
     if not GEMINI_API_KEY:
         return "⚠️ Ошибка: API ключ GEMINI_API_KEY не установлен в Vercel!"
 
